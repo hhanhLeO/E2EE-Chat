@@ -1,23 +1,24 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   /* ===== Fonts ===== */
-  --font-display: "Syne", sans-serif;
-  --font-body: "DM Sans", sans-serif;
-  --font-mono: "JetBrains Mono", monospace;
+  --font-display: 'Syne', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 
   /* ===== Colors ===== */
-  --color-cipher-50: #f0fdf9;
-  --color-cipher-100: #ccfbef;
-  --color-cipher-200: #99f6e0;
-  --color-cipher-300: #5eead4;
-  --color-cipher-400: #2dd4bf;
-  --color-cipher-500: #14b8a6;
-  --color-cipher-600: #0d9488;
-  --color-cipher-700: #0f766e;
-  --color-cipher-800: #115e59;
-  --color-cipher-900: #134e4a;
-  --color-cipher-950: #042f2e;
+  --color-cipher-50: #faf5ff;
+  --color-cipher-100: #f3e8ff;
+  --color-cipher-200: #e9d5ff;
+  --color-cipher-300: #d8b4fe;
+  --color-cipher-400: #c084fc;
+  --color-cipher-500: #a855f7;
+  --color-cipher-600: #9333ea;
+  --color-cipher-700: #7e22ce;
+  --color-cipher-800: #6b21a8;
+  --color-cipher-900: #581c87;
+  --color-cipher-950: #3b0764;
 
   /* ===== Animations ===== */
   --animate-fade-up: fadeUp 0.3s ease forwards;
@@ -36,7 +37,9 @@
 }
 
 @keyframes pulseDot {
-  0%, 80%, 100% {
+  0%,
+  80%,
+  100% {
     transform: scale(0);
     opacity: 0.3;
   }
@@ -52,10 +55,14 @@
     -webkit-font-smoothing: antialiased;
     scroll-behavior: smooth;
   }
- 
+
   /* Custom scrollbar */
-  ::-webkit-scrollbar { width: 4px; }
-  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
   ::-webkit-scrollbar-thumb {
     @apply bg-cipher-700 rounded-full;
   }
@@ -63,24 +70,46 @@
     @apply bg-cipher-600;
   }
 }
- 
+
 @layer utilities {
-  .font-display { font-family: 'Syne', sans-serif; }
-  .font-mono    { font-family: 'JetBrains Mono', monospace; }
- 
+  .font-display {
+    font-family: 'Syne', sans-serif;
+  }
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
   /* Glass morphism card */
   .glass {
     @apply backdrop-blur-xl bg-white/60 dark:bg-zinc-900/60 border border-white/20 dark:border-zinc-700/30;
   }
- 
+
   /* Animated gradient background */
   .cipher-bg {
-    background: radial-gradient(ellipse 80% 80% at 50% -20%, rgba(20, 184, 166, 0.15), transparent),
-                radial-gradient(ellipse 60% 50% at 80% 80%, rgba(13, 148, 136, 0.08), transparent);
+    background:
+      radial-gradient(
+        ellipse 80% 80% at 50% -20%,
+        rgba(168, 85, 247, 0.15),
+        transparent
+      ),
+      radial-gradient(
+        ellipse 60% 50% at 80% 80%,
+        rgba(147, 51, 234, 0.08),
+        transparent
+      );
   }
- 
+
   .dark .cipher-bg {
-    background: radial-gradient(ellipse 80% 80% at 50% -20%, rgba(20, 184, 166, 0.12), transparent),
-                radial-gradient(ellipse 60% 50% at 80% 80%, rgba(13, 148, 136, 0.06), transparent);
+    background:
+      radial-gradient(
+        ellipse 80% 80% at 50% -20%,
+        rgba(168, 85, 247, 0.12),
+        transparent
+      ),
+      radial-gradient(
+        ellipse 60% 50% at 80% 80%,
+        rgba(147, 51, 234, 0.06),
+        transparent
+      );
   }
 }

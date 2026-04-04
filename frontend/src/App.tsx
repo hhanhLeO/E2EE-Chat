@@ -4,7 +4,7 @@ import { IdentityProvider } from './context/IdentityContext';
 import Layout from './components/Layout';
 import HomePage from './pages/HomePage';
 import ChatPage from './pages/ChatPage';
-// import NotFoundPage from './pages/NotFoundPage';
+import NotFoundPage from './pages/NotFoundPage';
 
 export default function App() {
   return (
@@ -16,7 +16,7 @@ export default function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/room/:channelId" element={<ChatPage />} />
               <Route path="/join" element={<JoinRedirect />} />
-              {/* <Route path="*" element={<NotFoundPage />} /> */}
+              <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
