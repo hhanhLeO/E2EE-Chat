@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useIdentity } from '../context/IdentityContext';
 import CreateRoom from '../components/CreateRoom';
@@ -9,20 +9,18 @@ export default function HomePage() {
   const location = useLocation();
   const [joinId, setJoinId] = useState('');
 
-  // Received when ChatPage redirects here after a ROOM_FULL error
-  const roomFull =
-    (location.state as { roomFull?: boolean } | null)?.roomFull === true;
-
-  // Dismiss the notification and clear location state so a manual refresh
-  // or back-navigation doesn't re-show the banner.
-  const [showRoomFull, setShowRoomFull] = useState(roomFull);
-  useEffect(() => {
-    if (roomFull) {
-      setShowRoomFull(true);
-      // Replace state so the banner won't reappear on refresh
+  // Read location.state once via useState lazy initializer — no effect needed.
+  // The initializer runs only on the first render, reads the flag, and immediately
+  // clears history state so a hard refresh won't re-show the banner.
+  const [showRoomFull, setShowRoomFull] = useState<boolean>(() => {
+    const full =
+      (location.state as { roomFull?: boolean } | null)?.roomFull === true;
+    if (full) {
+      // Safe here: window.history is an external DOM API, not React state.
       window.history.replaceState({}, '');
     }
-  }, [roomFull]);
+    return full;
+  });
 
   const handleJoin = () => {
     const id = joinId.trim();
