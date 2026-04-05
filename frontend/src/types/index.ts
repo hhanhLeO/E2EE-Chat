@@ -17,7 +17,7 @@ export interface Message {
   id: string;
   channelId: string;
   sender: 'me' | 'peer';
-  content: string;       // plaintext (decrypted)
+  content: string; // plaintext (decrypted)
   timestamp: number;
   status: 'sending' | 'sent' | 'delivered' | 'failed';
 }
@@ -27,15 +27,15 @@ export interface Message {
 export interface EncryptedPayload {
   id: string;
   channelId: string;
-  sender: string;        // publicKeyRaw of sender
-  ciphertext: string;    // base64
-  iv: string;            // base64
+  sender: string; // publicKeyRaw of sender
+  ciphertext: string; // base64
+  iv: string; // base64
   timestamp: number;
 }
 
 export interface JoinPayload {
   channelId: string;
-  publicKey: string;     // base64url
+  publicKey: string; // base64url
 }
 
 export interface PeerKeyPayload {
@@ -45,15 +45,28 @@ export interface PeerKeyPayload {
 
 export interface TypingPayload {
   channelId: string;
-  ciphertext: string;    // encrypted boolean
+  ciphertext: string; // encrypted boolean
   iv: string;
 }
 
 // ─── UI State ─────────────────────────────────────────────────────────────────
 
-export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'error';
+export type ConnectionState =
+  | 'connecting'
+  | 'connected'
+  | 'disconnected'
+  | 'error';
 
 export type PeerState = 'waiting' | 'online' | 'offline';
+
+export type ServerErrorCode =
+  | 'ROOM_FULL'
+  | 'JOIN_RATE_LIMITED'
+  | 'FLOOD_LIMIT'
+  | 'ALREADY_IN_ROOM'
+  | 'INVALID_ROOM_ID'
+  | 'INVALID_PUBLIC_KEY'
+  | 'ORIGIN_NOT_ALLOWED';
 
 export interface RoomState {
   channelId: string;
@@ -62,4 +75,5 @@ export interface RoomState {
   peerFingerprint: string | null;
   isTyping: boolean;
   connectionState: ConnectionState;
+  serverError: ServerErrorCode | null;
 }

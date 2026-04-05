@@ -15,7 +15,6 @@ import {
   deriveSharedKey,
   encryptMessage,
   decryptMessage,
-  exportPublicKey,
   keyFingerprint,
 } from '../lib/crypto';
 import {
@@ -32,6 +31,7 @@ import type {
   RoomState,
   EncryptedPayload,
   PeerKeyPayload,
+  ServerErrorCode,
 } from '../types';
 
 const TYPING_DEBOUNCE_MS = 1500;
@@ -47,6 +47,7 @@ export function useRoom(channelId: string) {
     peerFingerprint: null,
     isTyping: false,
     connectionState: 'connecting',
+    serverError: null,
   });
 
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -86,7 +87,10 @@ export function useRoom(channelId: string) {
       if (stored) {
         // Re-derive the shared key (it's non-extractable, so we re-derive)
         const peerPubKey = await importPublicKey(stored.peerPublicKeyRaw);
-        const sharedKey = await deriveSharedKey(identity.privateKey, peerPubKey);
+        const sharedKey = await deriveSharedKey(
+          identity.privateKey,
+          peerPubKey,
+        );
         sharedKeyRef.current = sharedKey;
 
         const fp = await keyFingerprint(stored.peerPublicKeyRaw);
@@ -119,7 +123,11 @@ export function useRoom(channelId: string) {
     if (!identity) return;
 
     const onConnect = () => {
-      setState((s) => ({ ...s, connectionState: 'connected' }));
+      setState((s) => ({
+        ...s,
+        connectionState: 'connected',
+        serverError: null,
+      }));
       joinRoom(); // re-join on reconnect
     };
 
@@ -133,6 +141,12 @@ export function useRoom(channelId: string) {
 
     const onConnectError = () => {
       setState((s) => ({ ...s, connectionState: 'error' }));
+    };
+
+    // Server-emitted protection errors (room full, rate limited, etc.)
+    const onServerError = ({ code }: { code: ServerErrorCode }) => {
+      setState((s) => ({ ...s, serverError: code }));
+      console.warn('[server error]', code);
     };
 
     // Peer joined and sent their public key
@@ -160,7 +174,10 @@ export function useRoom(channelId: string) {
         }));
 
         // Respond with our own key so the peer can also derive
-        socket.emit('peer-key', { channelId, publicKey: identity.publicKeyRaw });
+        socket.emit('peer-key', {
+          channelId,
+          publicKey: identity.publicKeyRaw,
+        });
       } catch (err) {
         console.error('Key exchange failed:', err);
       }
@@ -206,7 +223,13 @@ export function useRoom(channelId: string) {
     };
 
     // Encrypted typing indicator
-    const onTyping = async ({ ciphertext, iv }: { ciphertext: string; iv: string }) => {
+    const onTyping = async ({
+      ciphertext,
+      iv,
+    }: {
+      ciphertext: string;
+      iv: string;
+    }) => {
       if (!sharedKeyRef.current) return;
       try {
         const raw = await decryptMessage(sharedKeyRef.current, ciphertext, iv);
@@ -228,6 +251,7 @@ export function useRoom(channelId: string) {
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('connect_error', onConnectError);
+    socket.on('error', onServerError);
     socket.on('peer-key', onPeerKey);
     socket.on('peer-left', onPeerLeft);
     socket.on('message', onMessage);
@@ -238,6 +262,7 @@ export function useRoom(channelId: string) {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onConnectError);
+      socket.off('error', onServerError);
       socket.off('peer-key', onPeerKey);
       socket.off('peer-left', onPeerLeft);
       socket.off('message', onMessage);
@@ -267,7 +292,10 @@ export function useRoom(channelId: string) {
       await saveMessage(msg);
 
       try {
-        const { ciphertext, iv } = await encryptMessage(sharedKeyRef.current, content);
+        const { ciphertext, iv } = await encryptMessage(
+          sharedKeyRef.current,
+          content,
+        );
         socket.emit('message', {
           id,
           channelId,

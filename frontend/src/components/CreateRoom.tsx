@@ -1,12 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { Identity } from '../types';
 
-interface Props {
-  identity: Identity;
-}
-
-export default function CreateRoom({ identity }: Props) {
+export default function CreateRoom() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

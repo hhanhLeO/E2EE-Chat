@@ -1,12 +1,28 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useIdentity } from '../context/IdentityContext';
 import CreateRoom from '../components/CreateRoom';
 
 export default function HomePage() {
   const { identity, isLoading } = useIdentity();
   const navigate = useNavigate();
+  const location = useLocation();
   const [joinId, setJoinId] = useState('');
+
+  // Received when ChatPage redirects here after a ROOM_FULL error
+  const roomFull =
+    (location.state as { roomFull?: boolean } | null)?.roomFull === true;
+
+  // Dismiss the notification and clear location state so a manual refresh
+  // or back-navigation doesn't re-show the banner.
+  const [showRoomFull, setShowRoomFull] = useState(roomFull);
+  useEffect(() => {
+    if (roomFull) {
+      setShowRoomFull(true);
+      // Replace state so the banner won't reappear on refresh
+      window.history.replaceState({}, '');
+    }
+  }, [roomFull]);
 
   const handleJoin = () => {
     const id = joinId.trim();
@@ -28,7 +44,71 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[calc(100vh-56px)] px-4 py-16">
-      {/* Hero */}
+      {/* ── Room full notification ───────────────────────────────────────────── */}
+      {showRoomFull && (
+        <div className="w-full max-w-lg mb-6 animate-fade-up">
+          <div
+            className="relative flex items-start gap-4 px-5 py-4 rounded-2xl
+                          bg-red-500/10 border border-red-500/20 text-left"
+          >
+            {/* Icon */}
+            <div
+              className="mt-0.5 w-9 h-9 flex-shrink-0 flex items-center justify-center
+                            rounded-xl bg-red-500/15 border border-red-500/20"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-red-500"
+              >
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+            </div>
+
+            {/* Text */}
+            <div className="flex-1 min-w-0">
+              <p className="font-display font-700 text-sm text-red-600 dark:text-red-400 mb-0.5">
+                Room is full
+              </p>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                That room already has 2 participants. Create a new private room
+                and share the fresh link with your contact.
+              </p>
+            </div>
+
+            {/* Dismiss */}
+            <button
+              onClick={() => setShowRoomFull(false)}
+              aria-label="Dismiss"
+              className="flex-shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300
+                         transition-colors mt-0.5"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Hero ─────────────────────────────────────────────────────────────── */}
       <div className="text-center mb-14 animate-fade-up">
         <div
           className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono
@@ -53,14 +133,22 @@ export default function HomePage() {
         </p>
       </div>
 
-      {/* Cards */}
+      {/* ── Cards ────────────────────────────────────────────────────────────── */}
       <div className="w-full max-w-lg space-y-4">
-        {/* Create room */}
+        {/* Create room — highlighted with a subtle ring when roomFull is showing */}
         <div
-          className="glass rounded-2xl p-6 shadow-xl shadow-black/5 dark:shadow-black/20 animate-fade-up"
+          className={`glass rounded-2xl p-6 shadow-xl shadow-black/5 dark:shadow-black/20 animate-fade-up
+                         transition-all duration-300
+                         ${showRoomFull ? 'ring-2 ring-cipher-500/40' : ''}`}
           style={{ animationDelay: '80ms' }}
         >
-          <CreateRoom identity={identity!} />
+          {showRoomFull && (
+            <p className="text-xs font-mono text-cipher-500 dark:text-cipher-400 mb-3 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-cipher-500" />
+              Create a new room below
+            </p>
+          )}
+          <CreateRoom />
         </div>
 
         {/* Join by ID */}
