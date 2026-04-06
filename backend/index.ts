@@ -1,45 +1,24 @@
 /**
- * index.ts (Version 1 — fixed)
+ * index.ts (Version 2 — minimised relay)
  *
- * Critical bug fixed: Person B (invitee) always got ROOM_FULL / ROOM_NOT_FOUND
- * and was rejected. Person A briefly showed "Connected" then "Offline".
+ * The server is a "dumb pipe": it stores nothing (no room registry, no
+ * message history, no user accounts). Room IDs are generated client-side
+ * (crypto.randomUUID) and the server only uses Socket.io's built-in
+ * adapter to track live room membership.
  *
- * Root cause: two guards in the join handler both relied on the rooms/roomSockets
- * Maps being pre-populated by POST /api/rooms:
- *
- *   1. roomExists(channelId) → false for person B (they never called POST /api/rooms)
- *      → emitted ROOM_NOT_FOUND → socket disconnected → A saw peer-left
- *
- *   2. tryAddSocket() → roomSockets had no entry → returned false
- *      → emitted ROOM_FULL (same observable effect)
- *
- * Fix (in roomManager.ts):
- *   - ensureRoom() lazily creates both Maps entries on first socket join
- *   - tryAddSocket() calls ensureRoom() before checking capacity
- *   - The roomExists() guard in the join handler is removed; tryAddSocket()
- *     is now the single gate that handles both "first join creates room" and
- *     "reject if at capacity"
- *
- * The REST GET /api/rooms/:id still uses roomExists() correctly — it should
- * return 404 for rooms that were never created via the API.
+ * Security measures:
+ *   - Room ID must be valid UUIDv4 format (122-bit entropy).
+ *   - Join rate limit: max 5 join attempts per socket per 60 seconds.
+ *   - Message rate limit: max 60 messages per socket per 60 seconds.
+ *   - Room capacity: 2 sockets max (checked via adapter).
+ *   - Payload size cap: 64 KB (Socket.io maxHttpBufferSize).
+ *   - No data ever written to disk or database.
  */
 
 import express from 'express';
 import { createServer } from 'http';
 import { Server, type Socket } from 'socket.io';
 import cors from 'cors';
-import { v4 as uuidv4 } from 'uuid';
-import {
-  createRoom,
-  getRoom,
-  touchRoom,
-  checkRateLimit,
-  clearRateLimit,
-  tryAddSocket,
-  removeSocket,
-  getRoomSize,
-  ROOM_CAPACITY,
-} from './roomManager';
 import type {
   EncryptedPayload,
   JoinPayload,
@@ -48,51 +27,121 @@ import type {
 } from './types';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
+const ROOM_CAPACITY = 2;
 
-// ─── Express ──────────────────────────────────────────────────────────────────
+// ─── Validation ──────────────────────────────────────────────────────────────
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidRoomId(id: unknown): id is string {
+  return typeof id === 'string' && UUID_RE.test(id);
+}
+
+// ─── Rate Limiting ───────────────────────────────────────────────────────────
+
+interface RateLimitConfig {
+  max: number;
+  windowMs: number;
+}
+
+const JOIN_LIMIT: RateLimitConfig = { max: 5, windowMs: 60_000 };
+const MSG_LIMIT: RateLimitConfig = { max: 60, windowMs: 60_000 };
+
+// socketId → timestamps[]
+const joinTimestamps = new Map<string, number[]>();
+const msgTimestamps = new Map<string, number[]>();
+
+function checkRate(
+  map: Map<string, number[]>,
+  socketId: string,
+  config: RateLimitConfig,
+): boolean {
+  const now = Date.now();
+  const cutoff = now - config.windowMs;
+  const recent = (map.get(socketId) ?? []).filter((t) => t > cutoff);
+  if (recent.length >= config.max) return false;
+  recent.push(now);
+  map.set(socketId, recent);
+  return true;
+}
+
+function clearRates(socketId: string): void {
+  joinTimestamps.delete(socketId);
+  msgTimestamps.delete(socketId);
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/** Returns the number of sockets currently in a room (via adapter). */
+function roomSize(roomId: string): number {
+  return io.sockets.adapter.rooms.get(roomId)?.size ?? 0;
+}
+
+/**
+ * Returns the channel room this socket has joined (if any).
+ * socket.rooms always contains socket.id itself; we find the first
+ * entry that is NOT the socket id.
+ */
+function getSocketRoom(socket: Socket): string | undefined {
+  for (const room of socket.rooms) {
+    if (room !== socket.id) return room;
+  }
+  return undefined;
+}
+
+// ─── Express (health check only) ─────────────────────────────────────────────
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN ?? '*' }));
-app.use(express.json());
-
-app.post('/api/rooms', (_req, res) => {
-  const channelId = uuidv4();
-  const room = createRoom(channelId);
-  res.json({ channelId, createdAt: room.createdAt });
-});
-
-app.get('/api/rooms/:id', (req, res) => {
-  const room = getRoom(req.params.id);
-  if (!room) return res.status(404).json({ error: 'Room not found' });
-  res.json({ channelId: room.channelId, createdAt: room.createdAt });
-});
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-// ─── Socket.io ────────────────────────────────────────────────────────────────
+// ─── Socket.io ───────────────────────────────────────────────────────────────
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: process.env.FRONTEND_ORIGIN ?? '*' },
-  maxHttpBufferSize: 64 * 1024,
+  maxHttpBufferSize: 64 * 1024, // 64 KB payload cap
 });
-
-// Maps socketId → channelId for disconnect cleanup
-const socketRoom = new Map<string, string>();
 
 io.on('connection', (socket: Socket) => {
   console.log(`[+] Socket connected: ${socket.id}`);
 
-  // ── Join room ──────────────────────────────────────────────────────────────
+  // ── Join room ────────────────────────────────────────────────────────────
   socket.on('join', ({ channelId, publicKey }: JoinPayload) => {
-    if (!channelId || !publicKey) return;
+    if (!isValidRoomId(channelId)) {
+      socket.emit('error', {
+        code: 'INVALID_ROOM_ID',
+        message: 'Room ID must be a valid UUIDv4.',
+      });
+      return;
+    }
+    if (!publicKey || typeof publicKey !== 'string') {
+      socket.emit('error', {
+        code: 'INVALID_PUBLIC_KEY',
+        message: 'Missing public key.',
+      });
+      return;
+    }
 
-    // NOTE: No roomExists() check here — that was the bug.
-    // tryAddSocket() handles all three cases atomically:
-    //   1. Room doesn't exist yet  → creates it lazily, adds socket (size becomes 1)
-    //   2. Room exists, has 1 slot → adds socket (size becomes 2)
-    //   3. Room exists, at capacity → rejects with ROOM_FULL
-    if (!tryAddSocket(channelId, socket.id)) {
+    // Already in this room (reconnect / duplicate join) — re-announce key
+    if (socket.rooms.has(channelId)) {
+      socket.to(channelId).emit('peer-key', { channelId, publicKey });
+      return;
+    }
+
+    // Join rate limit
+    if (!checkRate(joinTimestamps, socket.id, JOIN_LIMIT)) {
+      socket.emit('error', {
+        code: 'JOIN_RATE_LIMITED',
+        message: 'Too many join attempts. Try again later.',
+      });
+      return;
+    }
+
+    // Capacity check via adapter
+    if (roomSize(channelId) >= ROOM_CAPACITY) {
       socket.emit('error', {
         code: 'ROOM_FULL',
         message: `Room already has ${ROOM_CAPACITY} participants.`,
@@ -101,86 +150,92 @@ io.on('connection', (socket: Socket) => {
     }
 
     socket.join(channelId);
-    socketRoom.set(socket.id, channelId);
-    touchRoom(channelId);
 
-    const occupancy = getRoomSize(channelId);
+    const occupancy = roomSize(channelId);
     console.log(
       `[join] ${socket.id} → room ${channelId} (occupancy: ${occupancy}/${ROOM_CAPACITY})`,
     );
 
-    // Announce our public key to the peer already in the room (if any).
-    // With capacity=2 enforced, socket.to() is always point-to-point here.
+    // Announce public key to peer already in the room (if any)
     socket.to(channelId).emit('peer-key', { channelId, publicKey });
   });
 
-  // ── Peer key response ──────────────────────────────────────────────────────
+  // ── Peer key response ──────────────────────────────────────────────────
   socket.on('peer-key', ({ channelId, publicKey }: PeerKeyPayload) => {
     if (!channelId || !publicKey) return;
-    if (socketRoom.get(socket.id) !== channelId) return;
+    if (getSocketRoom(socket) !== channelId) return;
 
     socket.to(channelId).emit('peer-key', { channelId, publicKey });
   });
 
-  // ── Encrypted message relay ───────────────────────────────────────────────
+  // ── Encrypted message relay ────────────────────────────────────────────
   socket.on('message', (payload: EncryptedPayload) => {
     const { channelId } = payload;
     if (!channelId) return;
-    if (socketRoom.get(socket.id) !== channelId) return;
+    if (getSocketRoom(socket) !== channelId) return;
 
-    if (!checkRateLimit(socket.id)) {
-      socket.emit('error', { code: 'RATE_LIMITED' });
+    if (!checkRate(msgTimestamps, socket.id, MSG_LIMIT)) {
+      socket.emit('error', {
+        code: 'FLOOD_LIMIT',
+        message: 'Sending too fast.',
+      });
       return;
     }
 
-    touchRoom(channelId);
     socket.to(channelId).emit('message', payload);
     console.log(
       `[msg] ${socket.id} → ${channelId} (${payload.ciphertext.length}b)`,
     );
   });
 
-  // ── Delivery acknowledgement ──────────────────────────────────────────────
+  // ── Delivery acknowledgement ───────────────────────────────────────────
   socket.on(
     'delivered',
     ({ id, channelId }: { id: string; channelId: string }) => {
-      if (socketRoom.get(socket.id) !== channelId) return;
+      if (getSocketRoom(socket) !== channelId) return;
       socket.to(channelId).emit('delivered', { id });
     },
   );
 
-  // ── Encrypted typing indicator ────────────────────────────────────────────
+  // ── Encrypted typing indicator ─────────────────────────────────────────
   socket.on('typing', ({ channelId, ciphertext, iv }: TypingPayload) => {
     if (!channelId) return;
-    if (socketRoom.get(socket.id) !== channelId) return;
+    if (getSocketRoom(socket) !== channelId) return;
     socket.to(channelId).emit('typing', { ciphertext, iv });
   });
 
-  // ── Leave room ────────────────────────────────────────────────────────────
+  // ── Leave room ─────────────────────────────────────────────────────────
   socket.on('leave', ({ channelId }: { channelId: string }) => {
     socket.leave(channelId);
-    removeSocket(channelId, socket.id);
-    socketRoom.delete(socket.id);
-    socket.to(channelId).emit('peer-left');
-    clearRateLimit(socket.id);
+    // socket has left, so use io.to() to reach remaining peer
+    io.to(channelId).emit('peer-left');
+    clearRates(socket.id);
     console.log(`[leave] ${socket.id} left room ${channelId}`);
   });
 
-  // ── Disconnect ────────────────────────────────────────────────────────────
+  // ── Disconnect ─────────────────────────────────────────────────────────
+  // Cleanup rate-limit entries. Peer notification is handled by the
+  // adapter 'leave-room' event below (socket.rooms is already empty here).
   socket.on('disconnect', () => {
-    const channelId = socketRoom.get(socket.id);
-    if (channelId) {
-      removeSocket(channelId, socket.id);
-      socket.to(channelId).emit('peer-left');
-      socketRoom.delete(socket.id);
-    }
-    clearRateLimit(socket.id);
+    clearRates(socket.id);
     console.log(`[-] Socket disconnected: ${socket.id}`);
   });
 });
 
-// ─── Start ────────────────────────────────────────────────────────────────────
+// ── Notify peer on any room departure (disconnect or explicit leave) ─────
+// When a socket leaves a room for ANY reason (disconnect, explicit leave),
+// the adapter emits 'leave-room'.  We use this to reliably notify the
+// remaining peer, avoiding the socket.to() bug where socket.rooms is
+// already empty during the 'disconnect' event.
+io.sockets.adapter.on('leave-room', (roomId: string, socketId: string) => {
+  // Ignore the default room (every socket auto-joins a room named after
+  // its own id — we only care about channel rooms).
+  if (roomId === socketId) return;
+  io.to(roomId).emit('peer-left');
+});
+
+// ─── Start ───────────────────────────────────────────────────────────────────
 
 httpServer.listen(PORT, () => {
-  console.log(`✓ CipherChat v1 server listening on port ${PORT}`);
+  console.log(`✓ CipherChat v2 server listening on port ${PORT}`);
 });

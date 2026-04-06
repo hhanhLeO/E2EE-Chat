@@ -1,9 +1,3 @@
-export interface Room {
-  channelId: string;
-  createdAt: number;
-  lastActivity: number;
-}
-
 export interface EncryptedPayload {
   id: string;
   channelId: string;
