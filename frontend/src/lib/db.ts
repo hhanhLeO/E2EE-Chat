@@ -3,8 +3,8 @@
  * IndexedDB persistence for Identity, Channels, and Messages.
  * Uses the `idb` library for a Promise-based API.
  *
- * Improvement: version-based migrations so the schema can evolve without
- * wiping user data.
+ * v2: Added `nickname` field to channels + helper functions for
+ *     channel listing, renaming, and deletion.
  */
 
 import { openDB, type IDBPDatabase } from 'idb';
@@ -18,11 +18,12 @@ interface IdentityRecord {
   privateKeyJwk: string;
 }
 
-interface ChannelRecord {
+export interface ChannelRecord {
   channelId: string;
   peerPublicKeyRaw: string;
-  sharedKeyJwk: string; // AES-GCM key as JWK — NOTE: stored as non-extractable in memory, but we export for persistence
+  sharedKeyJwk: string;
   createdAt: number;
+  nickname: string; // user-assigned label, defaults to ''
 }
 
 interface MessageRecord extends Omit<Message, 'status'> {
@@ -45,21 +46,19 @@ let _db: IDBPDatabase<E2EESchema> | null = null;
 
 async function getDB(): Promise<IDBPDatabase<E2EESchema>> {
   if (_db) return _db;
-  _db = await openDB<E2EESchema>('cipher-chat', 1, {
-    upgrade(db) {
-      // Identity store — only one record ever
-      if (!db.objectStoreNames.contains('identity')) {
+  _db = await openDB<E2EESchema>('cipher-chat', 2, {
+    upgrade(db, oldVersion) {
+      // ── v1 stores ──────────────────────────────────────────────────────
+      if (oldVersion < 1) {
         db.createObjectStore('identity', { keyPath: 'id' });
-      }
-      // Channel store
-      if (!db.objectStoreNames.contains('channels')) {
         db.createObjectStore('channels', { keyPath: 'channelId' });
-      }
-      // Message store — indexed by channelId for fast history retrieval
-      if (!db.objectStoreNames.contains('messages')) {
         const msgStore = db.createObjectStore('messages', { keyPath: 'id' });
         msgStore.createIndex('by-channel', 'channelId');
       }
+      // ── v2: nickname field ─────────────────────────────────────────────
+      // No structural migration needed — `nickname` is simply a new field
+      // on existing records. Old records will have `undefined` for this
+      // field; we normalise to '' when reading.
     },
   });
   return _db;
@@ -91,7 +90,47 @@ export async function loadChannel(
   channelId: string,
 ): Promise<ChannelRecord | undefined> {
   const db = await getDB();
-  return db.get('channels', channelId);
+  const record = await db.get('channels', channelId);
+  if (record) record.nickname = record.nickname ?? '';
+  return record;
+}
+
+/** Load all saved channels, sorted by most recently created first. */
+export async function loadAllChannels(): Promise<ChannelRecord[]> {
+  const db = await getDB();
+  const all = await db.getAll('channels');
+  // Normalise nickname for records created before v2
+  for (const ch of all) ch.nickname = ch.nickname ?? '';
+  return all.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** Update only the nickname of an existing channel. */
+export async function updateChannelNickname(
+  channelId: string,
+  nickname: string,
+): Promise<void> {
+  const db = await getDB();
+  const existing = await db.get('channels', channelId);
+  if (existing) {
+    await db.put('channels', { ...existing, nickname });
+  }
+}
+
+/** Delete a channel record and all its messages from IndexedDB. */
+export async function deleteChannel(channelId: string): Promise<void> {
+  const db = await getDB();
+  // Delete all messages for this channel
+  const msgKeys = await db.getAllKeysFromIndex(
+    'messages',
+    'by-channel',
+    channelId,
+  );
+  const tx = db.transaction(['channels', 'messages'], 'readwrite');
+  for (const key of msgKeys) {
+    tx.objectStore('messages').delete(key);
+  }
+  tx.objectStore('channels').delete(channelId);
+  await tx.done;
 }
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
@@ -116,4 +155,16 @@ export async function updateMessageStatus(
   const db = await getDB();
   const existing = await db.get('messages', id);
   if (existing) await db.put('messages', { ...existing, status });
+}
+
+/** Load the most recent message for a given channel (for preview). */
+export async function loadLastMessage(
+  channelId: string,
+): Promise<Message | undefined> {
+  const db = await getDB();
+  const records = await db.getAllFromIndex('messages', 'by-channel', channelId);
+  if (records.length === 0) return undefined;
+  records.sort((a, b) => b.timestamp - a.timestamp);
+  const r = records[0];
+  return { ...r, status: r.status as Message['status'] };
 }

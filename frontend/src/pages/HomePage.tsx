@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useIdentity } from '../context/IdentityContext';
 import CreateRoom from '../components/CreateRoom';
+import ChannelList from '../components/ChannelList';
 
 export default function HomePage() {
   const { identity, isLoading } = useIdentity();
@@ -178,6 +179,9 @@ export default function HomePage() {
             </button>
           </div>
         </div>
+
+        {/* Recent conversations */}
+        <ChannelList />
       </div>
 
       {/* Key fingerprint footer */}

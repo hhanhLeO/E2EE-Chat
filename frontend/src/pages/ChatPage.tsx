@@ -1,11 +1,12 @@
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRoom } from '../hooks/useRoom';
 import { useIdentity } from '../context/IdentityContext';
 import MessageList from '../components/MessageList';
 import MessageInput from '../components/MessageInput';
 import PeerStatus from '../components/PeerStatus';
 import { useClipboard } from '../hooks/useClipboard';
+import { loadChannel, updateChannelNickname } from '../lib/db';
 
 export default function ChatPage() {
   const { channelId } = useParams<{ channelId: string }>();
@@ -21,6 +22,40 @@ export default function ChatPage() {
     peerPubkeyFromUrl,
   );
   const { copied, copy } = useClipboard();
+
+  // ── Channel nickname ────────────────────────────────────────────────────
+  const [nickname, setNickname] = useState('');
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  // Load existing nickname from IndexedDB
+  useEffect(() => {
+    loadChannel(channelId!).then((ch) => {
+      if (ch?.nickname) setNickname(ch.nickname);
+    });
+  }, [channelId]);
+
+  // Auto-focus input when editing starts
+  useEffect(() => {
+    if (isEditingName) nameInputRef.current?.focus();
+  }, [isEditingName]);
+
+  const startEditing = () => {
+    setNameInput(nickname);
+    setIsEditingName(true);
+  };
+
+  const saveName = async () => {
+    const trimmed = nameInput.trim();
+    setNickname(trimmed);
+    setIsEditingName(false);
+    await updateChannelNickname(channelId!, trimmed);
+  };
+
+  const cancelEditing = () => {
+    setIsEditingName(false);
+  };
 
   // Redirect home when the server rejects us because the room is full.
   // Pass { roomFull: true } in location state so HomePage can show a notification.
@@ -71,12 +106,58 @@ export default function ChatPage() {
             </svg>
           </button>
           <div>
-            <p className="text-xs font-mono text-zinc-400 dark:text-zinc-500">
-              Room
-            </p>
-            <p className="font-display font-600 text-sm text-zinc-900 dark:text-white tracking-tight">
-              {channelId}
-            </p>
+            {isEditingName ? (
+              <div className="flex items-center gap-1.5">
+                <input
+                  ref={nameInputRef}
+                  type="text"
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveName();
+                    if (e.key === 'Escape') cancelEditing();
+                  }}
+                  onBlur={saveName}
+                  placeholder="Name this chat…"
+                  maxLength={40}
+                  className="w-32 md:w-48 bg-zinc-100 dark:bg-zinc-800 rounded-lg px-2 py-1 text-sm
+                             text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600
+                             outline-none focus:ring-2 focus:ring-cipher-500/40 transition font-display font-600"
+                />
+              </div>
+            ) : (
+              <button
+                onClick={startEditing}
+                className="text-left group"
+                title="Click to rename"
+              >
+                <p
+                  className="font-display font-600 text-sm text-zinc-900 dark:text-white tracking-tight
+                              group-hover:text-cipher-500 transition-colors flex items-center gap-1.5"
+                >
+                  {nickname || channelId}
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="text-zinc-300 dark:text-zinc-600 group-hover:text-cipher-500 transition-colors"
+                  >
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                  </svg>
+                </p>
+                {nickname && (
+                  <p className="text-[10px] font-mono text-zinc-400 dark:text-zinc-600">
+                    {channelId}
+                  </p>
+                )}
+              </button>
+            )}
           </div>
         </div>
 

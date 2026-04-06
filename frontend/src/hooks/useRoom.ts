@@ -182,12 +182,15 @@ export function useRoom(channelId: string, peerKeyFromUrl?: string | null) {
 
         const fp = await keyFingerprint(publicKey);
 
-        // Persist channel for session recovery
+        // Persist channel for session recovery.
+        // Preserve existing nickname if re-connecting to a known channel.
+        const existing = await loadChannel(channelId);
         await saveChannel({
           channelId,
           peerPublicKeyRaw: publicKey,
           sharedKeyJwk: '', // non-extractable; we store peerPublicKeyRaw to re-derive
-          createdAt: Date.now(),
+          createdAt: existing?.createdAt ?? Date.now(),
+          nickname: existing?.nickname ?? '',
         });
 
         setState((s) => ({
