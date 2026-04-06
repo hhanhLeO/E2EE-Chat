@@ -46,19 +46,21 @@ let _db: IDBPDatabase<E2EESchema> | null = null;
 
 async function getDB(): Promise<IDBPDatabase<E2EESchema>> {
   if (_db) return _db;
-  _db = await openDB<E2EESchema>('cipher-chat', 2, {
-    upgrade(db, oldVersion) {
-      // ── v1 stores ──────────────────────────────────────────────────────
-      if (oldVersion < 1) {
+  _db = await openDB<E2EESchema>('cipher-chat', 1, {
+    upgrade(db) {
+      // Identity store — only one record ever
+      if (!db.objectStoreNames.contains('identity')) {
         db.createObjectStore('identity', { keyPath: 'id' });
+      }
+      // Channel store
+      if (!db.objectStoreNames.contains('channels')) {
         db.createObjectStore('channels', { keyPath: 'channelId' });
+      }
+      // Message store — indexed by channelId for fast history retrieval
+      if (!db.objectStoreNames.contains('messages')) {
         const msgStore = db.createObjectStore('messages', { keyPath: 'id' });
         msgStore.createIndex('by-channel', 'channelId');
       }
-      // ── v2: nickname field ─────────────────────────────────────────────
-      // No structural migration needed — `nickname` is simply a new field
-      // on existing records. Old records will have `undefined` for this
-      // field; we normalise to '' when reading.
     },
   });
   return _db;
@@ -90,17 +92,13 @@ export async function loadChannel(
   channelId: string,
 ): Promise<ChannelRecord | undefined> {
   const db = await getDB();
-  const record = await db.get('channels', channelId);
-  if (record) record.nickname = record.nickname ?? '';
-  return record;
+  return db.get('channels', channelId);
 }
 
 /** Load all saved channels, sorted by most recently created first. */
 export async function loadAllChannels(): Promise<ChannelRecord[]> {
   const db = await getDB();
   const all = await db.getAll('channels');
-  // Normalise nickname for records created before v2
-  for (const ch of all) ch.nickname = ch.nickname ?? '';
   return all.sort((a, b) => b.createdAt - a.createdAt);
 }
 
