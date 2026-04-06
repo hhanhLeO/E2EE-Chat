@@ -36,7 +36,7 @@ import type {
 
 const TYPING_DEBOUNCE_MS = 1500;
 
-export function useRoom(channelId: string) {
+export function useRoom(channelId: string, peerKeyFromUrl?: string | null) {
   const { identity } = useIdentity();
   const sharedKeyRef = useRef<CryptoKey | null>(null);
 
@@ -48,6 +48,7 @@ export function useRoom(channelId: string) {
     isTyping: false,
     connectionState: 'connecting',
     serverError: null,
+    keyMismatch: false,
   });
 
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -153,6 +154,28 @@ export function useRoom(channelId: string) {
     const onPeerKey = async ({ publicKey }: PeerKeyPayload) => {
       if (!identity) return;
       try {
+        // ── OOB Verification ──────────────────────────────────────────────
+        // If this user joined via an invite link that contained the peer's
+        // public key, verify that the key received over WebSocket matches
+        // the one from the URL.  A mismatch could indicate a MITM attack
+        // where the server (or an attacker) is substituting keys.
+        //
+        // Guard: if peerKeyFromUrl equals our OWN public key, the current
+        // user is the room creator who opened their own invite link — the
+        // URL key is theirs, not the peer's, so there is nothing to verify.
+        const isOwnKey = peerKeyFromUrl === identity.publicKeyRaw;
+        const mismatch = !!(
+          peerKeyFromUrl &&
+          !isOwnKey &&
+          publicKey !== peerKeyFromUrl
+        );
+        if (mismatch) {
+          console.warn(
+            '[OOB] Key mismatch! URL key differs from WebSocket key.',
+            { url: peerKeyFromUrl, ws: publicKey },
+          );
+        }
+
         const peerPub = await importPublicKey(publicKey);
         const sharedKey = await deriveSharedKey(identity.privateKey, peerPub);
         sharedKeyRef.current = sharedKey;
@@ -171,6 +194,7 @@ export function useRoom(channelId: string) {
           ...s,
           peerState: 'online',
           peerFingerprint: fp,
+          keyMismatch: mismatch,
         }));
 
         // Respond with our own key so the peer can also derive

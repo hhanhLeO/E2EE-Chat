@@ -16,7 +16,10 @@ export default function ChatPage() {
   // The peer's pubkey may arrive via the join URL
   const peerPubkeyFromUrl = searchParams.get('pubkey');
 
-  const { state, sendMessage, sendTyping } = useRoom(channelId!);
+  const { state, sendMessage, sendTyping } = useRoom(
+    channelId!,
+    peerPubkeyFromUrl,
+  );
   const { copied, copy } = useClipboard();
 
   // Redirect home when the server rejects us because the room is full.
@@ -109,6 +112,41 @@ export default function ChatPage() {
           )}
         </div>
       </div>
+
+      {/* ── OOB Key Mismatch Warning ─────────────────────────────────────────── */}
+      {state.keyMismatch && (
+        <div
+          className="flex items-start gap-3 px-4 md:px-6 py-3 bg-red-500/10
+                        border-b border-red-500/20 text-left"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-red-500 flex-shrink-0 mt-0.5"
+          >
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          <div>
+            <p className="text-sm font-display font-700 text-red-600 dark:text-red-400">
+              Key mismatch — possible MITM attack
+            </p>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5 leading-relaxed">
+              The peer's public key received over WebSocket does not match the
+              key embedded in the invite link. This could mean the server or a
+              third party is intercepting the connection. Verify the peer's
+              fingerprint out-of-band before continuing.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Waiting state — show invite panel */}
       {state.peerState === 'waiting' && (

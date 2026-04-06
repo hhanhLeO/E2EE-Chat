@@ -76,4 +76,5 @@ export interface RoomState {
   isTyping: boolean;
   connectionState: ConnectionState;
   serverError: ServerErrorCode | null;
+  keyMismatch: boolean;
 }
