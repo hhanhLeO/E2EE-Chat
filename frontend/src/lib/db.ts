@@ -2,9 +2,6 @@
  * db.ts
  * IndexedDB persistence for Identity, Channels, and Messages.
  * Uses the `idb` library for a Promise-based API.
- *
- * v2: Added `nickname` field to channels + helper functions for
- *     channel listing, renaming, and deletion.
  */
 
 import { openDB, type IDBPDatabase } from 'idb';
@@ -23,7 +20,7 @@ export interface ChannelRecord {
   peerPublicKeyRaw: string;
   sharedKeyJwk: string;
   createdAt: number;
-  nickname: string; // user-assigned label, defaults to ''
+  nickname: string;
 }
 
 interface MessageRecord extends Omit<Message, 'status'> {
@@ -48,22 +45,24 @@ async function getDB(): Promise<IDBPDatabase<E2EESchema>> {
   if (_db) return _db;
   _db = await openDB<E2EESchema>('cipher-chat', 1, {
     upgrade(db) {
-      // Identity store — only one record ever
-      if (!db.objectStoreNames.contains('identity')) {
-        db.createObjectStore('identity', { keyPath: 'id' });
-      }
-      // Channel store
-      if (!db.objectStoreNames.contains('channels')) {
-        db.createObjectStore('channels', { keyPath: 'channelId' });
-      }
-      // Message store — indexed by channelId for fast history retrieval
-      if (!db.objectStoreNames.contains('messages')) {
-        const msgStore = db.createObjectStore('messages', { keyPath: 'id' });
-        msgStore.createIndex('by-channel', 'channelId');
-      }
+      db.createObjectStore('identity', { keyPath: 'id' });
+      db.createObjectStore('channels', { keyPath: 'channelId' });
+      const msgStore = db.createObjectStore('messages', { keyPath: 'id' });
+      msgStore.createIndex('by-channel', 'channelId');
     },
   });
   return _db;
+}
+
+/**
+ * Close the current DB connection and clear the singleton cache.
+ * Intended for test teardown so each test can start with a fresh database.
+ */
+export async function resetDB(): Promise<void> {
+  if (_db) {
+    _db.close();
+    _db = null;
+  }
 }
 
 // ─── Identity ─────────────────────────────────────────────────────────────────
@@ -117,7 +116,6 @@ export async function updateChannelNickname(
 /** Delete a channel record and all its messages from IndexedDB. */
 export async function deleteChannel(channelId: string): Promise<void> {
   const db = await getDB();
-  // Delete all messages for this channel
   const msgKeys = await db.getAllKeysFromIndex(
     'messages',
     'by-channel',
