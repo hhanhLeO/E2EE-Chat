@@ -10,5 +10,5 @@ const PORT = parseInt(process.env.PORT ?? '3001', 10);
 const { httpServer } = createApp();
 
 httpServer.listen(PORT, () => {
-  console.log(`✓ CipherChat v2 server listening on port ${PORT}`);
+  console.log(`CipherChat server listening on port ${PORT}`);
 });
