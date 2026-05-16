@@ -4,6 +4,12 @@ A secure, browser-based instant messaging application with **true End-to-End Enc
 
 ---
 
+## Live Demo
+
+Click here: [e2ee-chat-kappa.vercel.app](https://e2ee-chat-kappa.vercel.app)
+
+---
+
 ## Features
 
 - **Zero Registration** — identity is a locally generated ECDH key pair, stored only in your browser
