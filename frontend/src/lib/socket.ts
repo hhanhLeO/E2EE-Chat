@@ -9,11 +9,10 @@
 
 import { io, type Socket } from 'socket.io-client';
 
-const BACKEND_URL =
-  import.meta.env.VITE_BACKEND_URL ?? window.location.origin;
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
 export const socket: Socket = io(BACKEND_URL, {
-  autoConnect: false,      // connect explicitly when entering a room
+  autoConnect: false, // connect explicitly when entering a room
   reconnection: true,
   reconnectionAttempts: Infinity,
   reconnectionDelay: 1000,
