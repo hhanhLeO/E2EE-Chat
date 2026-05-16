@@ -28,7 +28,13 @@ export async function exportPublicKey(key: CryptoKey): Promise<string> {
 
 export async function importPublicKey(base64: string): Promise<CryptoKey> {
   const raw = base64ToBuffer(base64);
-  return crypto.subtle.importKey('raw', raw, ECDH_PARAMS, true, []);
+  return crypto.subtle.importKey(
+    'raw',
+    raw as Uint8Array<ArrayBuffer>,
+    ECDH_PARAMS,
+    true,
+    [],
+  );
 }
 
 export async function exportPrivateKey(key: CryptoKey): Promise<string> {
@@ -62,8 +68,12 @@ export async function encryptMessage(
   sharedKey: CryptoKey,
   plaintext: string,
 ): Promise<{ ciphertext: string; iv: string }> {
-  const iv = crypto.getRandomValues(new Uint8Array(12)); // 96-bit random IV
-  const encoded = new TextEncoder().encode(plaintext);
+  const iv = crypto.getRandomValues(
+    new Uint8Array(12),
+  ) as Uint8Array<ArrayBuffer>; // 96-bit random IV
+  const encoded = new TextEncoder().encode(
+    plaintext,
+  ) as Uint8Array<ArrayBuffer>;
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     sharedKey,
@@ -81,9 +91,9 @@ export async function decryptMessage(
   iv: string,
 ): Promise<string> {
   const decrypted = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: base64ToBuffer(iv) },
+    { name: 'AES-GCM', iv: base64ToBuffer(iv) as Uint8Array<ArrayBuffer> },
     sharedKey,
-    base64ToBuffer(ciphertext),
+    base64ToBuffer(ciphertext) as Uint8Array<ArrayBuffer>,
   );
   return new TextDecoder().decode(decrypted);
 }
@@ -97,12 +107,19 @@ export async function decryptMessage(
  */
 export async function keyFingerprint(publicKeyRaw: string): Promise<string> {
   const raw = base64ToBuffer(publicKeyRaw);
-  const hash = await crypto.subtle.digest('SHA-256', raw);
+  const hash = await crypto.subtle.digest(
+    'SHA-256',
+    raw as Uint8Array<ArrayBuffer>,
+  );
   const hex = Array.from(new Uint8Array(hash))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
   // Format as groups of 4: XXXX XXXX XXXX XXXX
-  return hex.slice(0, 16).replace(/(.{4})/g, '$1 ').trim().toUpperCase();
+  return hex
+    .slice(0, 16)
+    .replace(/(.{4})/g, '$1 ')
+    .trim()
+    .toUpperCase();
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

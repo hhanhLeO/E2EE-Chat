@@ -34,8 +34,6 @@ import type {
   ServerErrorCode,
 } from '../types';
 
-const TYPING_DEBOUNCE_MS = 1500;
-
 export function useRoom(channelId: string, peerKeyFromUrl?: string | null) {
   const { identity } = useIdentity();
   const sharedKeyRef = useRef<CryptoKey | null>(null);
