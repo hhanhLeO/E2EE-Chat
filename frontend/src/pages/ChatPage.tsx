@@ -67,7 +67,7 @@ export default function ChatPage() {
   }, [state.serverError, navigate]);
 
   // Build the invitation link to share with peer
-  const inviteLink = `${window.location.origin}/join?room=${channelId}&pubkey=${identity?.publicKeyRaw ?? ''}`;
+  const inviteLink = `${window.location.origin}/join?room=${channelId}&pubkey=${encodeURIComponent(identity?.publicKeyRaw ?? '')}`;
 
   const handleCopyLink = () => copy(inviteLink);
 

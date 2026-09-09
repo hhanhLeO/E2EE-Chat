@@ -34,7 +34,12 @@ function JoinRedirect() {
   const room = params.get('room');
   const pubkey = params.get('pubkey');
   if (room) {
-    return <Navigate to={`/room/${room}?pubkey=${pubkey ?? ''}`} replace />;
+    return (
+      <Navigate
+        to={`/room/${room}?pubkey=${encodeURIComponent(pubkey ?? '')}`}
+        replace
+      />
+    );
   }
   return <Navigate to="/" replace />;
 }
